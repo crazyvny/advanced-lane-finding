@@ -1,0 +1,572 @@
+
+<!-- udacimak v1.2.1 -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>Finding the Lines: Sliding Window</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/plyr.css">
+  <link rel="stylesheet" href="../assets/css/katex.min.css">
+  <link rel="stylesheet" href="../assets/css/jquery.mCustomScrollbar.min.css">
+  <link rel="stylesheet" href="../assets/css/styles.css">
+  <link rel="shortcut icon" type="image/png" href="../assets/img/udacimak.png" />
+</head>
+
+<body>
+  <div class="wrapper">
+    <nav id="sidebar">
+  <div class="sidebar-header">
+    <h3>Advanced Techniques for Lane Finding</h3>
+  </div>
+
+  <ul class="sidebar-list list-unstyled CTAs">
+    <li>
+      <a href="../index.html" class="article">Back to Home</a>
+    </li>
+  </ul>
+
+  <ul class="sidebar-list list-unstyled components">
+    <li class="">
+      <a href="01. Reviewing Steps.html">01. Reviewing Steps</a>
+    </li>
+    <li class="">
+      <a href="02. Processing Each Image.html">02. Processing Each Image</a>
+    </li>
+    <li class="">
+      <a href="03. Finding the Lines Histogram Peaks.html">03. Finding the Lines: Histogram Peaks</a>
+    </li>
+    <li class="">
+      <a href="04. Finding the Lines Sliding Window.html">04. Finding the Lines: Sliding Window</a>
+    </li>
+    <li class="">
+      <a href="05. Finding the Lines Search from Prior.html">05. Finding the Lines: Search from Prior</a>
+    </li>
+    <li class="">
+      <a href="06. Another Sliding Window Search.html">06. Another Sliding Window Search</a>
+    </li>
+    <li class="">
+      <a href="07. Measuring Curvature I.html">07. Measuring Curvature I</a>
+    </li>
+    <li class="">
+      <a href="08. Measuring Curvature II.html">08. Measuring Curvature II</a>
+    </li>
+  </ul>
+
+  <ul class="sidebar-list list-unstyled CTAs">
+    <li>
+      <a href="../index.html" class="article">Back to Home</a>
+    </li>
+  </ul>
+</nav>
+
+    <div id="content">
+      <header class="container-fluild header">
+        <div class="container">
+          <div class="row">
+            <div class="col-12">
+              <div class="align-items-middle">
+                <button type="button" id="sidebarCollapse" class="btn btn-toggle-sidebar">
+                  <div></div>
+                  <div></div>
+                  <div></div>
+                </button>
+
+                <h1 style="display: inline-block">04. Finding the Lines: Sliding Window</h1>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="container">
+        <div class="row">
+          <div class="col-12">
+            <div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h1 id="implement-sliding-windows-and-fit-a-polynomial">Implement Sliding Windows and Fit a Polynomial</h1>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <figure class="figure">
+    <img src="img/screen-shot-2017-01-28-at-11.49.20-am.png" alt="" class="img img-fluid">
+    <figcaption class="figure-caption">
+      
+    </figcaption>
+  </figure>
+</div>
+
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <p>As shown in the previous animation, we can use the two highest peaks from our histogram as a starting point for determining where the lane lines are, and then use sliding windows moving upward in the image (further along the road) to determine where the lane lines go.</p>
+<h3 id="split-the-histogram-for-the-two-lines">Split the histogram for the two lines</h3>
+<p>The first step we'll take is to split the histogram into two sides, one for each lane line.</p>
+<pre><code class="python language-python">import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
+# Assuming you have created a warped binary image called "binary_warped"
+# Take a histogram of the bottom half of the image
+histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
+# Create an output image to draw on and visualize the result
+out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
+# Find the peak of the left and right halves of the histogram
+# These will be the starting point for the left and right lines
+midpoint = np.int(histogram.shape[0]//2)
+leftx_base = np.argmax(histogram[:midpoint])
+rightx_base = np.argmax(histogram[midpoint:]) + midpoint</code></pre>
+<p>Note that in the above, we also create <code>out_img</code> to help with visualizing our output later on.</p>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h3 id="set-up-windows-and-window-hyperparameters">Set up windows and window hyperparameters</h3>
+<p>Our next step is to set a few hyperparameters related to our sliding windows, and set them up to iterate across the binary activations in the image. We have some base hyperparameters below, but don't forget to try out different values in your own implementation to see what works best!</p>
+<pre><code class="python language-python"># HYPERPARAMETERS
+# Choose the number of sliding windows
+nwindows = 9
+# Set the width of the windows +/- margin
+margin = 100
+# Set minimum number of pixels found to recenter window
+minpix = 50
+
+# Set height of windows - based on nwindows above and image shape
+window_height = np.int(binary_warped.shape[0]//nwindows)
+# Identify the x and y positions of all nonzero (i.e. activated) pixels in the image
+nonzero = binary_warped.nonzero()
+nonzeroy = np.array(nonzero[0])
+nonzerox = np.array(nonzero[1])
+# Current positions to be updated later for each window in nwindows
+leftx_current = leftx_base
+rightx_current = rightx_base
+
+# Create empty lists to receive left and right lane pixel indices
+left_lane_inds = []
+right_lane_inds = []</code></pre>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h3 id="iterate-through-nwindows-to-track-curvature">Iterate through <code>nwindows</code> to track curvature</h3>
+<p>Now that we've set up what the windows look like and have a starting point, we'll want to loop for <code>nwindows</code>, with the given window sliding left or right if it finds the mean position of activated pixels within the window to have shifted.</p>
+<p>You'll implement this part in the <strong>quiz</strong> below, but here's a few steps to get you started:</p>
+<ol>
+<li>Loop through each window in <code>nwindows</code></li>
+<li>Find the boundaries of our current window. This is based on a combination of the current window's starting point (<code>leftx_current</code> and <code>rightx_current</code>), as well as the <code>margin</code> you set in the hyperparameters.</li>
+<li>Use <code>cv2.rectangle</code> to draw these window boundaries onto our visualization image <code>out_img</code>. This is required for the quiz, but you can skip this step in practice if you don't need to visualize where the windows are.</li>
+<li>Now that we know the boundaries of our window, find out which activated pixels from <code>nonzeroy</code> and <code>nonzerox</code> above actually fall into the window.</li>
+<li>Append these to our lists <code>left_lane_inds</code> and <code>right_lane_inds</code>.</li>
+<li>If the number of pixels you found in Step 4 are greater than your hyperparameter <code>minpix</code>, re-center our window (i.e. <code>leftx_current</code> or <code>rightx_current</code>) based on the mean position of these pixels.</li>
+</ol>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h3 id="fit-a-polynomial">Fit a polynomial</h3>
+<p>Now that we have found all our pixels belonging to each line through the sliding window method, it's time to fit a polynomial to the line. First, we have a couple small steps to ready our pixels.</p>
+<pre><code class="python language-python"># Concatenate the arrays of indices (previously was a list of lists of pixels)
+left_lane_inds = np.concatenate(left_lane_inds)
+right_lane_inds = np.concatenate(right_lane_inds)
+
+# Extract left and right line pixel positions
+leftx = nonzerox[left_lane_inds]
+lefty = nonzeroy[left_lane_inds] 
+rightx = nonzerox[right_lane_inds]
+righty = nonzeroy[right_lane_inds]</code></pre>
+<p>We'll let you implement the function for the polynomial in the <strong>quiz</strong> below using <code>np.polyfit</code>. </p>
+<pre><code class="python language-python"># Assuming we have `left_fit` and `right_fit` from `np.polyfit` before
+# Generate x and y values for plotting
+ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0])
+left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]</code></pre>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h3 id="visualization">Visualization</h3>
+<p>Once you reach this point, you're done! But here is how you can visualize the result as well:</p>
+<pre><code class="python language-python">out_img[lefty, leftx] = [255, 0, 0]
+out_img[righty, rightx] = [0, 0, 255]
+
+plt.imshow(out_img)
+plt.plot(left_fitx, ploty, color='yellow')
+plt.plot(right_fitx, ploty, color='yellow')
+plt.xlim(0, 1280)
+plt.ylim(720, 0)</code></pre>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+  <h2 id="quiz">Quiz</h2>
+<p>In the below quiz, implement the following (see <code>TO-DO</code>'s):</p>
+<ul>
+<li>Steps 2, 4 and 6 from above within the <code>for</code> loop in <code>find_lane_pixels()</code> - find the window boundaries, find all pixels within those boundaries, and if there are more than <code>minpix</code>, slide the window over to the mean of these pixels.</li>
+<li>Fit a polynomial to all the relevant pixels you've found in your sliding windows in <code>fit_polynomial()</code>.</li>
+</ul>
+</div>
+
+</div>
+<div class="divider"></div><div class="ud-atom">
+  <h3></h3>
+  <div>
+
+  <h4>Start Quiz:</h4>
+  <div>
+  <div class="nav nav-tabs nav-fill" role="tablist" id="question-tabs">
+    <a href="#652436-sliding_window-py" class="nav-item nav-link  active show" id="tab-652436-sliding_window-py" data-toggle="tab" role="tab"
+      aria-controls="652436-sliding_window-py" aria-selected="true">sliding_window.py</a>
+    <a href="#652436-solution-py" class="nav-item nav-link " id="tab-652436-solution-py" data-toggle="tab" role="tab"
+      aria-controls="652436-solution-py" aria-selected="false">solution.py</a>
+  </div>
+
+  <div class="tab-content" style="padding: 20px 0;" id="question-tab-contents">
+    <div class="tab-pane  active show" id="652436-sliding_window-py" aria-labelledby="tab-652436-sliding_window-py" role="tabpanel">
+      <pre><code></code>import numpy as np
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import cv2
+
+# Load our image
+binary_warped &#x3D; mpimg.imread(&#x27;warped_example.jpg&#x27;)
+
+def find_lane_pixels(binary_warped):
+    # Take a histogram of the bottom half of the image
+    histogram &#x3D; np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis&#x3D;0)
+    # Create an output image to draw on and visualize the result
+    out_img &#x3D; np.dstack((binary_warped, binary_warped, binary_warped))
+    # Find the peak of the left and right halves of the histogram
+    # These will be the starting point for the left and right lines
+    midpoint &#x3D; np.int(histogram.shape[0]//2)
+    leftx_base &#x3D; np.argmax(histogram[:midpoint])
+    rightx_base &#x3D; np.argmax(histogram[midpoint:]) + midpoint
+
+    # HYPERPARAMETERS
+    # Choose the number of sliding windows
+    nwindows &#x3D; 9
+    # Set the width of the windows +/- margin
+    margin &#x3D; 100
+    # Set minimum number of pixels found to recenter window
+    minpix &#x3D; 50
+
+    # Set height of windows - based on nwindows above and image shape
+    window_height &#x3D; np.int(binary_warped.shape[0]//nwindows)
+    # Identify the x and y positions of all nonzero pixels in the image
+    nonzero &#x3D; binary_warped.nonzero()
+    nonzeroy &#x3D; np.array(nonzero[0])
+    nonzerox &#x3D; np.array(nonzero[1])
+    # Current positions to be updated later for each window in nwindows
+    leftx_current &#x3D; leftx_base
+    rightx_current &#x3D; rightx_base
+
+    # Create empty lists to receive left and right lane pixel indices
+    left_lane_inds &#x3D; []
+    right_lane_inds &#x3D; []
+
+    # Step through the windows one by one
+    for window in range(nwindows):
+        # Identify window boundaries in x and y (and right and left)
+        win_y_low &#x3D; binary_warped.shape[0] - (window+1)*window_height
+        win_y_high &#x3D; binary_warped.shape[0] - window*window_height
+        ### TO-DO: Find the four below boundaries of the window ###
+        win_xleft_low &#x3D; 0  # Update this
+        win_xleft_high &#x3D; 0  # Update this
+        win_xright_low &#x3D; 0  # Update this
+        win_xright_high &#x3D; 0  # Update this
+        
+        # Draw the windows on the visualization image
+        cv2.rectangle(out_img,(win_xleft_low,win_y_low),
+        (win_xleft_high,win_y_high),(0,255,0), 2) 
+        cv2.rectangle(out_img,(win_xright_low,win_y_low),
+        (win_xright_high,win_y_high),(0,255,0), 2) 
+        
+        ### TO-DO: Identify the nonzero pixels in x and y within the window ###
+        good_left_inds &#x3D; None
+        good_right_inds &#x3D; None
+        
+        # Append these indices to the lists
+        left_lane_inds.append(good_left_inds)
+        right_lane_inds.append(good_right_inds)
+        
+        ### TO-DO: If you found &gt; minpix pixels, recenter next window ###
+        ### (&#x60;right&#x60; or &#x60;leftx_current&#x60;) on their mean position ###
+        pass # Remove this when you add your function
+
+    # Concatenate the arrays of indices (previously was a list of lists of pixels)
+    try:
+        left_lane_inds &#x3D; np.concatenate(left_lane_inds)
+        right_lane_inds &#x3D; np.concatenate(right_lane_inds)
+    except ValueError:
+        # Avoids an error if the above is not implemented fully
+        pass
+
+    # Extract left and right line pixel positions
+    leftx &#x3D; nonzerox[left_lane_inds]
+    lefty &#x3D; nonzeroy[left_lane_inds] 
+    rightx &#x3D; nonzerox[right_lane_inds]
+    righty &#x3D; nonzeroy[right_lane_inds]
+
+    return leftx, lefty, rightx, righty, out_img
+
+
+def fit_polynomial(binary_warped):
+    # Find our lane pixels first
+    leftx, lefty, rightx, righty, out_img &#x3D; find_lane_pixels(binary_warped)
+
+    ### TO-DO: Fit a second order polynomial to each using &#x60;np.polyfit&#x60; ###
+    left_fit &#x3D; None
+    right_fit &#x3D; None
+
+    # Generate x and y values for plotting
+    ploty &#x3D; np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
+    try:
+        left_fitx &#x3D; left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+        right_fitx &#x3D; right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+    except TypeError:
+        # Avoids an error if &#x60;left&#x60; and &#x60;right_fit&#x60; are still none or incorrect
+        print(&#x27;The function failed to fit a line!&#x27;)
+        left_fitx &#x3D; 1*ploty**2 + 1*ploty
+        right_fitx &#x3D; 1*ploty**2 + 1*ploty
+
+    ## Visualization ##
+    # Colors in the left and right lane regions
+    out_img[lefty, leftx] &#x3D; [255, 0, 0]
+    out_img[righty, rightx] &#x3D; [0, 0, 255]
+
+    # Plots the left and right polynomials on the lane lines
+    plt.plot(left_fitx, ploty, color&#x3D;&#x27;yellow&#x27;)
+    plt.plot(right_fitx, ploty, color&#x3D;&#x27;yellow&#x27;)
+
+    return out_img
+
+
+out_img &#x3D; fit_polynomial(binary_warped)
+
+plt.imshow(out_img)</code></pre>
+    </div>
+    <div class="tab-pane " id="652436-solution-py" aria-labelledby="tab-652436-solution-py" role="tabpanel">
+      <pre><code></code>import numpy as np
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+import cv2
+
+# Load our image
+binary_warped &#x3D; mpimg.imread(&#x27;warped_example.jpg&#x27;)
+
+def find_lane_pixels(binary_warped):
+    # Take a histogram of the bottom half of the image
+    histogram &#x3D; np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis&#x3D;0)
+    # Create an output image to draw on and visualize the result
+    out_img &#x3D; np.dstack((binary_warped, binary_warped, binary_warped))
+    # Find the peak of the left and right halves of the histogram
+    # These will be the starting point for the left and right lines
+    midpoint &#x3D; np.int(histogram.shape[0]//2)
+    leftx_base &#x3D; np.argmax(histogram[:midpoint])
+    rightx_base &#x3D; np.argmax(histogram[midpoint:]) + midpoint
+
+    # HYPERPARAMETERS
+    # Choose the number of sliding windows
+    nwindows &#x3D; 9
+    # Set the width of the windows +/- margin
+    margin &#x3D; 100
+    # Set minimum number of pixels found to recenter window
+    minpix &#x3D; 50
+
+    # Set height of windows - based on nwindows above and image shape
+    window_height &#x3D; np.int(binary_warped.shape[0]//nwindows)
+    # Identify the x and y positions of all nonzero pixels in the image
+    nonzero &#x3D; binary_warped.nonzero()
+    nonzeroy &#x3D; np.array(nonzero[0])
+    nonzerox &#x3D; np.array(nonzero[1])
+    # Current positions to be updated later for each window in nwindows
+    leftx_current &#x3D; leftx_base
+    rightx_current &#x3D; rightx_base
+
+    # Create empty lists to receive left and right lane pixel indices
+    left_lane_inds &#x3D; []
+    right_lane_inds &#x3D; []
+
+    # Step through the windows one by one
+    for window in range(nwindows):
+        # Identify window boundaries in x and y (and right and left)
+        win_y_low &#x3D; binary_warped.shape[0] - (window+1)*window_height
+        win_y_high &#x3D; binary_warped.shape[0] - window*window_height
+        win_xleft_low &#x3D; leftx_current - margin
+        win_xleft_high &#x3D; leftx_current + margin
+        win_xright_low &#x3D; rightx_current - margin
+        win_xright_high &#x3D; rightx_current + margin
+        
+        # Draw the windows on the visualization image
+        cv2.rectangle(out_img,(win_xleft_low,win_y_low),
+        (win_xleft_high,win_y_high),(0,255,0), 2) 
+        cv2.rectangle(out_img,(win_xright_low,win_y_low),
+        (win_xright_high,win_y_high),(0,255,0), 2) 
+        
+        # Identify the nonzero pixels in x and y within the window #
+        good_left_inds &#x3D; ((nonzeroy &gt;&#x3D; win_y_low) &amp; (nonzeroy &lt; win_y_high) &amp; 
+        (nonzerox &gt;&#x3D; win_xleft_low) &amp;  (nonzerox &lt; win_xleft_high)).nonzero()[0]
+        good_right_inds &#x3D; ((nonzeroy &gt;&#x3D; win_y_low) &amp; (nonzeroy &lt; win_y_high) &amp; 
+        (nonzerox &gt;&#x3D; win_xright_low) &amp;  (nonzerox &lt; win_xright_high)).nonzero()[0]
+        
+        # Append these indices to the lists
+        left_lane_inds.append(good_left_inds)
+        right_lane_inds.append(good_right_inds)
+        
+        # If you found &gt; minpix pixels, recenter next window on their mean position
+        if len(good_left_inds) &gt; minpix:
+            leftx_current &#x3D; np.int(np.mean(nonzerox[good_left_inds]))
+        if len(good_right_inds) &gt; minpix:        
+            rightx_current &#x3D; np.int(np.mean(nonzerox[good_right_inds]))
+
+    # Concatenate the arrays of indices (previously was a list of lists of pixels)
+    try:
+        left_lane_inds &#x3D; np.concatenate(left_lane_inds)
+        right_lane_inds &#x3D; np.concatenate(right_lane_inds)
+    except ValueError:
+        # Avoids an error if the above is not implemented fully
+        pass
+
+    # Extract left and right line pixel positions
+    leftx &#x3D; nonzerox[left_lane_inds]
+    lefty &#x3D; nonzeroy[left_lane_inds] 
+    rightx &#x3D; nonzerox[right_lane_inds]
+    righty &#x3D; nonzeroy[right_lane_inds]
+
+    return leftx, lefty, rightx, righty, out_img
+
+
+def fit_polynomial(binary_warped):
+    # Find our lane pixels first
+    leftx, lefty, rightx, righty, out_img &#x3D; find_lane_pixels(binary_warped)
+
+    # Fit a second order polynomial to each using &#x60;np.polyfit&#x60;
+    left_fit &#x3D; np.polyfit(lefty, leftx, 2)
+    right_fit &#x3D; np.polyfit(righty, rightx, 2)
+
+    # Generate x and y values for plotting
+    ploty &#x3D; np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
+    try:
+        left_fitx &#x3D; left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
+        right_fitx &#x3D; right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
+    except TypeError:
+        # Avoids an error if &#x60;left&#x60; and &#x60;right_fit&#x60; are still none or incorrect
+        print(&#x27;The function failed to fit a line!&#x27;)
+        left_fitx &#x3D; 1*ploty**2 + 1*ploty
+        right_fitx &#x3D; 1*ploty**2 + 1*ploty
+
+    ## Visualization ##
+    # Colors in the left and right lane regions
+    out_img[lefty, leftx] &#x3D; [255, 0, 0]
+    out_img[righty, rightx] &#x3D; [0, 0, 255]
+
+    # Plots the left and right polynomials on the lane lines
+    plt.plot(left_fitx, ploty, color&#x3D;&#x27;yellow&#x27;)
+    plt.plot(right_fitx, ploty, color&#x3D;&#x27;yellow&#x27;)
+
+    return out_img
+
+
+out_img &#x3D; fit_polynomial(binary_warped)
+
+plt.imshow(out_img)</code></pre>
+    </div>
+  </div>
+</div>
+
+
+
+</div>
+
+
+</div>
+<div class="divider"></div>
+          </div>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <div class="container">
+          <div class="row">
+            <div class="col-12">
+              <p class="text-center">
+                <a href="https://github.com/udacimak/udacimak#readme" target="_blank">udacimak v1.2.1</a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+
+  <script src="../assets/js/jquery-3.3.1.min.js"></script>
+  <script src="../assets/js/plyr.polyfilled.min.js"></script>
+  <script src="../assets/js/bootstrap.min.js"></script>
+  <script src="../assets/js/jquery.mCustomScrollbar.concat.min.js"></script>
+  <script src="../assets/js/katex.min.js"></script>
+  <script>
+    // Initialize Plyr video players
+    const players = Array.from(document.querySelectorAll('video')).map(p => new Plyr(p));
+
+    // render math equations
+    let elMath = document.getElementsByClassName('mathquill');
+    for (let i = 0, len = elMath.length; i < len; i += 1) {
+      const el = elMath[i];
+
+      katex.render(el.textContent, el, {
+        throwOnError: false
+      });
+    }
+
+    // this hack will make sure Bootstrap tabs work when using Handlebars
+    if ($('#question-tabs').length && $('#user-answer-tabs').length) {
+      $("#question-tabs a.nav-link").on('click', function () {
+        $("#question-tab-contents .tab-pane").hide();
+        $($(this).attr("href")).show();
+      });
+      $("#user-answer-tabs a.nav-link").on('click', function () {
+        $("#user-answer-tab-contents .tab-pane").hide();
+        $($(this).attr("href")).show();
+      });
+    } else {
+      $("a.nav-link").on('click', function () {
+        $(".tab-pane").hide();
+        $($(this).attr("href")).show();
+      });
+    }
+
+    // side bar events
+    $(document).ready(function () {
+      $("#sidebar").mCustomScrollbar({
+        theme: "minimal"
+      });
+
+      $('#sidebarCollapse').on('click', function () {
+        $('#sidebar, #content').toggleClass('active');
+        $('.collapse.in').toggleClass('in');
+        $('a[aria-expanded=true]').attr('aria-expanded', 'false');
+      });
+    });
+  </script>
+</body>
+
+</html>
